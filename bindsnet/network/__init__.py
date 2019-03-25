@@ -5,6 +5,7 @@ from typing import Dict
 from .nodes import AbstractInput, Nodes
 from .topology import AbstractConnection
 from .monitors import AbstractMonitor
+import pdb
 
 __all__ = [
     'load_network', 'Network', 'nodes', 'monitors', 'topology'
@@ -290,6 +291,105 @@ class Network:
         # Re-normalize connections.
         for c in self.connections:
             self.connections[c].normalize()
+
+    def run_RL(self, inpts: Dict[str, torch.Tensor], time: int, **kwargs) -> None:
+        # language=rst
+        """
+        Simulation network for given inputs and time.
+
+        :param inpts: Dictionary of ``Tensor``s of shape ``[time, n_input]``.
+        :param time: Simulation time.
+
+        Keyword arguments:
+
+        :param Dict[str, torch.Tensor] clamp: Mapping of layer names to boolean masks if neurons should be clamped to
+                                              spiking. The ``Tensor``s have shape ``[n_neurons]``.
+        :param Dict[str, torch.Tensor] unclamp: Mapping of layer names to boolean masks if neurons should be clamped
+                                                to not spiking. The ``Tensor``s should have shape ``[n_neurons]``.
+        :param float reward: Scalar value used in reward-modulated learning.
+        :param Dict[Tuple[str], torch.Tensor] masks: Mapping of connection names to boolean masks determining which
+                                                     weights to clamp to zero.
+
+        **Example:**
+
+        .. code-block:: python
+
+            import torch
+            import matplotlib.pyplot as plt
+
+            from bindsnet.network import Network
+            from bindsnet.network.nodes import Input
+            from bindsnet.network.monitors import Monitor
+
+            # Build simple network.
+            network = Network()
+            network.add_layer(Input(500), name='I')
+            network.add_monitor(Monitor(network.layers['I'], state_vars=['s']), 'I')
+
+            # Generate spikes by running Bernoulli trials on Uniform(0, 0.5) samples.
+            spikes = torch.bernoulli(0.5 * torch.rand(500, 500))
+
+            # Run network simulation.
+            network.run(inpts={'I' : spikes}, time=500)
+
+            # Look at input spiking activity.
+            spikes = network.monitors['I'].get('s')
+            plt.matshow(spikes, cmap='binary')
+            plt.xticks(()); plt.yticks(());
+            plt.xlabel('Time'); plt.ylabel('Neuron index')
+            plt.title('Input spiking')
+            plt.show()
+        """
+        # Parse keyword arguments.
+        clamps = kwargs.get('clamp', {})
+        unclamps = kwargs.get('unclamp', {})
+        masks = kwargs.get('masks', {})
+
+        # Effective number of timesteps.
+        timesteps = int(time / self.dt)
+
+        # Get input to all layers.
+        inpts.update(self.get_inputs())
+
+        # Simulate network activity for `time` timesteps.
+        for t in range(timesteps):
+            for l in self.layers:
+                # Update each layer of nodes.
+                if isinstance(self.layers[l], AbstractInput):
+                    self.layers[l].forward(x=inpts[l][t])
+                else:
+                    self.layers[l].forward(x=inpts[l])
+
+                # Clamp neurons to spike.
+                clamp = clamps.get(l, None)
+                if clamp is not None:
+                    if clamp.ndimension() == 1:
+                        self.layers[l].s[clamp] = 1
+                    else:
+                        self.layers[l].s[clamp[t]] = 1
+
+                # Clamp neurons not to spike.
+                unclamp = unclamps.get(l, None)
+                if unclamp is not None:
+                    if unclamp.ndimension() == 1:
+                        self.layers[l].s[unclamp] = 0
+                    else:
+                        self.layers[l].s[unclamp[t]] = 0
+
+            # Get input to all layers.
+            inpts.update(self.get_inputs())
+
+            # Record state variables of interest.
+            for m in self.monitors:
+                self.monitors[m].record()
+
+
+    def run_synaptic_updates(self, tderror, state, action, spikes, alpha) -> None:
+        for c in self.connections:
+            self.connections[c].update(learning=self.learning, tderror=tderror, state=state, action=action, spikes=spikes, alpha=alpha, mode='RL')
+        # Re-normalize connections.
+        #for c in self.connections:
+        #    self.connections[c].normalize()
 
     def reset_(self) -> None:
         # language=rst

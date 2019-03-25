@@ -140,6 +140,7 @@ class Connection(AbstractConnection):
                 self.w = torch.clamp(self.w, self.wmin, self.wmax)
 
         self.b = kwargs.get('b', torch.zeros(target.n))
+        self.traces = torch.zeros(source.n, target.n)
 
     def compute(self, s: torch.Tensor) -> torch.Tensor:
         # language=rst

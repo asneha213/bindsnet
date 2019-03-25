@@ -6,6 +6,7 @@ from typing import Union, Tuple, Optional, Sequence
 
 from ..utils import im2col_indices
 from ..network.topology import AbstractConnection, Connection, Conv2dConnection, LocallyConnectedConnection
+import pdb
 
 
 class LearningRule(ABC):
@@ -311,14 +312,31 @@ class Hebbian(LearningRule):
         target_s = self.target.s.view(-1).float()
         target_x = self.target.x.view(-1)
 
-        # Pre-synaptic update.
-        self.connection.w += self.nu[0] * torch.ger(
-            source_s, target_x
-        )
-        # Post-synaptic update.
-        self.connection.w += self.nu[1] * torch.ger(
-            source_x, target_s
-        )
+        if kwargs['mode'] == 'RL':
+            s_spikes = kwargs['spikes'][0]
+            t_spikes = kwargs['spikes'][1]
+            tderror = kwargs['tderror']
+            action = kwargs['action']
+            state = kwargs['state']
+
+            cum_s_spikes = torch.cumsum(s_spikes, dim=1)
+
+            spike_traces = -1*torch.matmul(cum_s_spikes, t_spikes.t().long()).float()
+            spike_traces[:,action] = -1*spike_traces[:,action]
+            self.connection.w += kwargs['alpha']*tderror*spike_traces
+
+            target_x = self.target.x.view(-1)
+
+        else:
+            # Pre-synaptic update.
+            self.connection.w += self.nu[0] * torch.ger(
+                source_s, target_x
+            )
+            # Post-synaptic update.
+            self.connection.w += self.nu[1] * torch.ger(
+                source_x, target_s
+            )
+
 
     def _conv2d_connection_update(self, **kwargs) -> None:
         # language=rst

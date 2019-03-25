@@ -5,6 +5,7 @@ from operator import mul
 from functools import reduce
 from abc import ABC, abstractmethod
 from typing import Iterable, Optional, Union
+import pdb
 
 
 class Nodes(ABC):
@@ -94,12 +95,78 @@ class Nodes(ABC):
             self.summed = torch.zeros(self.shape)  # Summed inputs.
 
 
+class StochasticNodes(Nodes):
+    # language=rst
+    """
+    Layer of `integrate-and-fire (IF) neurons <http://neuronaldynamics.epfl.ch/online/Ch1.S3.html>`_.
+    """
+
+    def __init__(self, n: Optional[int] = None, shape: Optional[Iterable[int]] = None, traces: bool = False,
+                 trace_tc: Union[float, torch.Tensor] = 0.8, sum_input: bool = False,
+                 thresh: Union[float, torch.Tensor] = 0.8, reset: Union[float, torch.Tensor] = 0.0) -> None:
+        # language=rst
+        """
+        Instantiates a layer of IF neurons.
+
+        :param n: The number of neurons in the layer.
+        :param shape: The dimensionality of the layer.
+        :param traces: Whether to record spike traces.
+        :param trace_tc: Time constant of spike trace decay.
+        :param sum_input: Whether to sum all inputs.
+        :param thresh: Spike threshold voltage.
+        :param reset: Post-spike reset voltage.
+        :param refrac: Refractory (non-firing) period of the neuron.
+        """
+        super().__init__(n, shape, traces, trace_tc, sum_input)
+
+        # Post-spike reset voltage.
+        if isinstance(reset, float):
+            self.reset = torch.tensor(reset)
+        else:
+            self.reset = reset
+
+        # Spike threshold voltage.
+        if isinstance(thresh, float):
+            self.thresh = torch.tensor(thresh)
+        else:
+            self.thresh = thresh
+
+        self.v = self.reset * torch.ones(self.shape)  # Neuron voltages.
+
+
+    def forward(self, x: torch.Tensor) -> None:
+        # language=rst
+        """
+        Runs a single simulation step.
+
+        :param x: Inputs to the layer.
+        """
+        # Integrate input voltages.
+        self.v +=  x
+
+        # Check for spiking neurons.
+        #self.s = torch.bernoulli(torch.tanh(2*self.v)).byte()
+        self.s = self.v > 0.2
+
+        # voltage reset.
+        self.v.masked_fill_(self.s, self.reset)
+
+        super().forward(x)
+
+    def reset_(self) -> None:
+        # language=rst
+        """
+        Resets relevant state variables.
+        """
+        super().reset_()
+        self.v = self.reset * torch.ones(self.shape)  # Neuron voltages.
+
+
 class AbstractInput(ABC):
     # language=rst
     """
     Abstract base class for groups of input neurons.
     """
-
 
 class Input(Nodes, AbstractInput):
     # language=rst
