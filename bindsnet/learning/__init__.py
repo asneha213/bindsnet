@@ -319,9 +319,10 @@ class Hebbian(LearningRule):
             action = kwargs['action']
             state = kwargs['state']
 
-            cum_s_spikes = torch.cumsum(s_spikes, dim=1)
+            cum_s_spikes = torch.cumsum(s_spikes, dim=1) 
+            inv_t_spikes = 1-t_spikes
 
-            spike_traces = -1*torch.matmul(cum_s_spikes, t_spikes.t().long()).float()
+            spike_traces = -1*torch.matmul(cum_s_spikes, inv_t_spikes.t().long()).float()/torch.sum(s_spikes).float()
             spike_traces[:,action] = -1*spike_traces[:,action]
             self.connection.w += kwargs['alpha']*tderror*spike_traces
 
